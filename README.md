@@ -1,6 +1,8 @@
 # PCB Chip Scanner — OBS Overlay
 
+Vibe coded by Mads Tech
 
+Video Link - 
 
 An AI-powered OBS overlay that identifies integrated circuits (ICs) on a PCB in real time and displays chip information directly on your stream or recording.
 
