@@ -1,8 +1,14 @@
 # PCB Chip Scanner — OBS Overlay
 
+
+
 An AI-powered OBS overlay that identifies integrated circuits (ICs) on a PCB in real time and displays chip information directly on your stream or recording.
 
 Point a camera at a circuit board, press **Space**, and get instant chip identification with bounding boxes, descriptions, and technical specs overlaid on your video.
+
+![Chip 1](https://github.com/user-attachments/assets/3c781b74-533e-45a0-a41d-3470fa411d1d)
+![Chip 2](https://github.com/user-attachments/assets/5b64f2f1-2e4c-4973-834d-86fd83c07378)
+![Chip 3](https://github.com/user-attachments/assets/4457c718-6992-475d-9c28-761e1b38c7a5)
 
 ---
 
@@ -15,6 +21,7 @@ Point a camera at a circuit board, press **Space**, and get instant chip identif
 - **Browser viewer** at `http://localhost:8766` — open in any browser for a flicker-free live view with sidebar IC list
 - Works as an **OBS Browser Source overlay** (transparent background)
 - Three versions to choose from — see comparison table below
+
 
 ---
 
