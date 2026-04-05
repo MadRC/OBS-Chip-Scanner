@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PCB Scanner — Live Viewer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #050f0c;
+    color: #c0ddd0;
+    font-family: 'Courier New', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+    gap: 16px;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    max-width: 1200px;
+    border-bottom: 1px solid rgba(0,255,136,0.2);
+    padding-bottom: 12px;
+  }
+
+  header h1 { font-size: 14px; letter-spacing: 3px; text-transform: uppercase; color: #00ff88; }
+
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #557766; flex-shrink: 0; }
+  .dot.connecting { background: #ffaa00; animation: blink 0.6s ease infinite; }
+  .dot.live       { background: #00ff88; }
+  .dot.scanning   { background: #00ff88; animation: blink 0.4s ease infinite; }
+  .dot.error      { background: #ff4444; animation: blink 0.4s ease infinite; }
+
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  #status-text { font-size: 11px; color: #557766; letter-spacing: 1px; text-transform: uppercase; }
+
+  .layout {
+    display: flex;
+    gap: 16px;
+    width: 100%;
+    max-width: 1200px;
+    align-items: flex-start;
+  }
+
+  /* ── Viewer: canvas is the feed, chip-layer sits on top ── */
+  .viewer-wrap {
+    position: relative;
+    flex: 1;
+    background: #000;
+    border: 1px solid rgba(0,255,136,0.2);
+    border-radius: 8px;
+    overflow: hidden;
+    /* height determined by canvas aspect ratio */
+  }
+
+  #camera-canvas {
+    width: 100%;
+    display: block;
+  }
+
+  /* Overlay layer — absolutely positioned over the canvas, never redrawn on frame */
+  #chip-layer {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+
+  /* ── Chip overlays ── */
+  .chip-box {
+    position: absolute;
+    border: 2px solid #00ff88;
+    border-radius: 4px;
+    box-shadow: 0 0 10px rgba(0,255,136,0.4);
+  }
+
+  @keyframes pulse-ring {
+    0%   { transform: scale(1);   opacity: 0.8; }
+    100% { transform: scale(1.6); opacity: 0; }
+  }
+  .chip-pulse {
+    position: absolute;
+    border: 2px solid #00ff88;
+    border-radius: 4px;
+    animation: pulse-ring 1.6s ease-out infinite;
+  }
+
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .chip-card {
+    position: absolute;
+    background: rgba(3, 12, 9, 0.94);
+    border: 1px solid rgba(0,255,136,0.5);
+    border-radius: 8px;
+    padding: 12px 16px;
+    min-width: 240px;
+    max-width: 360px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.7);
+    animation: fade-in 0.2s ease;
+    z-index: 10;
+  }
+  .chip-card .lbl   { font-size: 11px; letter-spacing: 2px; color: #00ff88; text-transform: uppercase; margin-bottom: 4px; }
+  .chip-card .name  { font-size: 18px; font-weight: bold; color: #00ff88; margin-bottom: 2px; line-height: 1.2; }
+  .chip-card .type  { font-size: 12px; color: #88bbaa; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
+  .chip-card .desc  { font-size: 13px; color: #c0ddd0; line-height: 1.5; font-family: sans-serif; }
+  .chip-card .specs { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 5px; }
+  .chip-card .pill  { font-size: 11px; background: rgba(0,255,136,0.1); border: 1px solid rgba(0,255,136,0.3); border-radius: 3px; padding: 2px 8px; color: #00dd77; }
+
+  svg.leader { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; overflow:visible; }
+
+  /* Detection zone */
+  #zone-box {
+    position: absolute;
+    border: 2px dashed rgba(0,255,136,0.6);
+    border-radius: 4px;
+    box-shadow: 0 0 0 9999px rgba(0,0,0,0.4);
+    pointer-events: none;
+    z-index: 5;
+  }
+  #zone-label {
+    position: absolute;
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: rgba(0,255,136,0.6);
+    pointer-events: none;
+    z-index: 6;
+  }
+
+  /* ── Sidebar ── */
+  #chip-list {
+    width: 280px;
+    flex-shrink: 0;
+    background: rgba(0,10,8,0.6);
+    border: 1px solid rgba(0,255,136,0.2);
+    border-radius: 8px;
+    padding: 14px;
+  }
+  #chip-list h2 {
+    font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+    color: #00ff88; margin-bottom: 12px;
+    border-bottom: 1px solid rgba(0,255,136,0.15); padding-bottom: 8px;
+  }
+  .chip-list-item {
+    padding: 8px 10px; border-radius: 5px;
+    border: 1px solid rgba(0,255,136,0.1); margin-bottom: 8px;
+    transition: border-color 0.2s;
+  }
+  .chip-list-item:hover { border-color: rgba(0,255,136,0.4); }
+  .chip-list-item .li-name { font-size: 13px; font-weight: bold; color: #00ff88; }
+  .chip-list-item .li-type { font-size: 10px; color: #557766; text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+  .chip-list-item .li-mfr  { font-size: 10px; color: #88bbaa; margin-top: 1px; }
+  #no-chips { font-size: 11px; color: #334d3d; text-align: center; padding: 20px 0; }
+
+  /* ── Port bar ── */
+  #port-bar { font-size: 11px; color: #557766; display: flex; align-items: center; gap: 8px; }
+  #port-bar input {
+    background: rgba(0,255,136,0.06); border: 1px solid rgba(0,255,136,0.2);
+    border-radius: 4px; color: #e0ffe0; padding: 3px 6px;
+    font-family: 'Courier New', monospace; font-size: 11px; width: 60px; outline: none;
+  }
+  #port-bar button {
+    background: rgba(0,255,136,0.12); border: 1px solid rgba(0,255,136,0.3);
+    border-radius: 4px; color: #00ff88; padding: 3px 10px;
+    font-family: 'Courier New', monospace; font-size: 11px; cursor: pointer;
+  }
+  #port-bar button:hover { background: rgba(0,255,136,0.22); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="dot connecting" id="dot"></div>
+  <h1>PCB Scanner</h1>
+  <span id="status-text">Connecting…</span>
+  <div style="flex:1"></div>
+  <div id="port-bar">
+    Port:
+    <input type="number" id="port-input" value="8765" min="1024" max="65535">
+    <button id="reconnect-btn">Connect</button>
+  </div>
+</header>
+
+<div class="layout">
+  <div class="viewer-wrap" id="viewer-wrap">
+    <!-- Canvas receives JPEG frames painted directly — no src reload, no flicker -->
+    <canvas id="camera-canvas"></canvas>
+    <!-- Chip overlay layer is separate and only updated on scan results -->
+    <div id="chip-layer">
+      <div id="zone-box"></div>
+      <div id="zone-label">Detection zone</div>
+      <svg class="leader" id="leader-svg"></svg>
+    </div>
+  </div>
+
+  <div id="chip-list">
+    <h2>Detected ICs</h2>
+    <div id="no-chips">No chips detected yet</div>
+  </div>
+</div>
+
+<script>
+let ws           = null;
+let currentChips = [];
+let currentZone  = null;
+let wsPort       = 8765;
+let canvasW      = 0;
+let canvasH      = 0;
+
+const dot        = document.getElementById('dot');
+const statusText = document.getElementById('status-text');
+const canvas     = document.getElementById('camera-canvas');
+const ctx2d      = canvas.getContext('2d');
+const chipLayer  = document.getElementById('chip-layer');
+const leaderSvg  = document.getElementById('leader-svg');
+const chipList   = document.getElementById('chip-list');
+const noChips    = document.getElementById('no-chips');
+
+// ── Status ───────────────────────────────────────────────
+function setStatus(state, msg) {
+  dot.className = 'dot ' + state;
+  statusText.textContent = msg;
+}
+
+// ── Paint a JPEG base64 frame onto the canvas ────────────
+// Uses an offscreen Image — once loaded it's drawn in one
+// synchronous call so there is zero blank-frame between updates.
+const frameImg = new Image();
+frameImg.onload = () => {
+  // First frame: size the canvas to match the image
+  if (canvas.width !== frameImg.naturalWidth) {
+    canvas.width  = frameImg.naturalWidth;
+    canvas.height = frameImg.naturalHeight;
+    canvasW = frameImg.naturalWidth;
+    canvasH = frameImg.naturalHeight;
+    // Re-position overlays now we know the real dimensions
+    if (currentZone)  updateZone(currentZone);
+    if (currentChips.length) renderOverlays(currentChips);
+  }
+  ctx2d.drawImage(frameImg, 0, 0);
+};
+
+function paintFrame(b64) {
+  // Revoke previous object URL if we used one — here we just swap src.
+  // Setting src on an already-loaded Image with the same dimensions
+  // does NOT cause a layout repaint on the overlay layer.
+  frameImg.src = 'data:image/jpeg;base64,' + b64;
+}
+
+// ── Detection zone ───────────────────────────────────────
+function updateZone(zone) {
+  currentZone = zone;
+  const iw = canvas.offsetWidth  || 1;
+  const ih = canvas.offsetHeight || 1;
+  const zx = zone.x * iw, zy = zone.y * ih;
+  const zw = zone.w * iw, zh = zone.h * ih;
+  const box = document.getElementById('zone-box');
+  box.style.cssText = `left:${zx}px;top:${zy}px;width:${zw}px;height:${zh}px;`;
+  const lbl = document.getElementById('zone-label');
+  lbl.style.cssText = `left:${zx}px;top:${Math.max(0, zy - 18)}px;`;
+}
+
+// ── Chip overlay — only called on scan results or clear ──
+function renderOverlays(chips) {
+  // Remove all overlay children except the persistent zone box, label, and SVG
+  Array.from(chipLayer.children).forEach(el => {
+    if (!['zone-box','zone-label','leader-svg'].includes(el.id)) el.remove();
+  });
+  leaderSvg.innerHTML = '';
+  if (!chips.length) return;
+
+  const iw = canvas.offsetWidth  || canvasW || 1;
+  const ih = canvas.offsetHeight || canvasH || 1;
+
+  chips.forEach((chip, i) => {
+    const b  = chip.bbox_pct;
+    const bx = b.x * iw, by = b.y * ih;
+    const bw = b.w * iw, bh = b.h * ih;
+
+    const box = document.createElement('div');
+    box.className = 'chip-box';
+    box.style.cssText = `left:${bx}px;top:${by}px;width:${bw}px;height:${bh}px;`;
+    chipLayer.appendChild(box);
+
+    const pulse = document.createElement('div');
+    pulse.className = 'chip-pulse';
+    pulse.style.cssText = `left:${bx}px;top:${by}px;width:${bw}px;height:${bh}px;animation-delay:${i*0.4}s;`;
+    chipLayer.appendChild(pulse);
+
+    const CARD_W = 260, CARD_H = 140;
+    let cx = bx + bw + 12;
+    if (cx + CARD_W > iw - 4) cx = bx - CARD_W - 12;
+    cx = Math.max(4, cx);
+    const cy = Math.max(4, Math.min(by, ih - CARD_H - 4));
+
+    const card = document.createElement('div');
+    card.className = 'chip-card';
+    card.style.cssText = `left:${cx}px;top:${cy}px;`;
+    card.innerHTML = `
+      <div class="lbl">${chip.manufacturer || 'Unknown'} · ${chip.id || ''}</div>
+      <div class="name">${chip.name || 'Unknown'}</div>
+      <div class="type">${chip.type || ''}</div>
+      <div class="desc">${chip.description || ''}</div>
+      ${chip.specs?.length ? `<div class="specs">${chip.specs.map(s=>`<span class="pill">${s}</span>`).join('')}</div>` : ''}
+    `;
+    chipLayer.appendChild(card);
+
+    const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1', bx+bw/2);   line.setAttribute('y1', by+bh/2);
+    line.setAttribute('x2', cx > bx ? cx : cx+CARD_W); line.setAttribute('y2', cy+18);
+    line.setAttribute('stroke','rgba(0,255,136,0.35)');
+    line.setAttribute('stroke-width','1');
+    line.setAttribute('stroke-dasharray','4 3');
+    leaderSvg.appendChild(line);
+  });
+}
+
+// ── Sidebar list ─────────────────────────────────────────
+function renderList(chips) {
+  chipList.querySelectorAll('.chip-list-item').forEach(el => el.remove());
+  noChips.style.display = chips.length ? 'none' : 'block';
+  chips.forEach(chip => {
+    const item = document.createElement('div');
+    item.className = 'chip-list-item';
+    item.innerHTML = `
+      <div class="li-name">${chip.name || 'Unknown'}</div>
+      <div class="li-type">${chip.type || ''}</div>
+      <div class="li-mfr">${chip.manufacturer || ''}</div>
+    `;
+    chipList.appendChild(item);
+  });
+}
+
+// ── WebSocket ─────────────────────────────────────────────
+function connect() {
+  if (ws) { try { ws.close(); } catch(_){} }
+  setStatus('connecting', `Connecting to ws://localhost:${wsPort}…`);
+  ws = new WebSocket(`ws://localhost:${wsPort}`);
+
+  ws.onopen = () => setStatus('live', 'Live — press Space in server terminal to scan');
+
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+
+    if (msg.type === 'frame') {
+      // Paint frame onto canvas — does NOT touch the chip overlay layer
+      paintFrame(msg.data);
+      if (msg.zone) updateZone(msg.zone);
+
+    } else if (msg.type === 'scan_start') {
+      setStatus('scanning', 'Scanning…');
+
+    } else if (msg.type === 'chips') {
+      currentChips = msg.chips || [];
+      if (msg.zone) updateZone(msg.zone);
+      renderOverlays(currentChips);
+      renderList(currentChips);
+      setStatus('live', `${currentChips.length} chip${currentChips.length !== 1 ? 's' : ''} detected`);
+
+    } else if (msg.type === 'clear') {
+      currentChips = [];
+      renderOverlays([]);
+      renderList([]);
+      setStatus('live', 'Cleared — press Space to scan');
+
+    } else if (msg.type === 'error') {
+      setStatus('error', msg.message);
+    }
+  };
+
+  ws.onerror = () => setStatus('error', `Cannot reach ws://localhost:${wsPort}`);
+  ws.onclose = () => {
+    setStatus('error', 'Disconnected — retrying in 4s');
+    setTimeout(connect, 4000);
+  };
+}
+
+// ── Re-render overlays on window resize ──────────────────
+new ResizeObserver(() => {
+  if (currentZone)        updateZone(currentZone);
+  if (currentChips.length) renderOverlays(currentChips);
+}).observe(canvas);
+
+// ── Port control ─────────────────────────────────────────
+document.getElementById('reconnect-btn').addEventListener('click', () => {
+  wsPort = parseInt(document.getElementById('port-input').value) || 8765;
+  connect();
+});
+document.getElementById('port-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('reconnect-btn').click();
+});
+
+connect();
+</script>
+</body>
+</html>

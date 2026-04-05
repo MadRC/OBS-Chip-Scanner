@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PCB Chip Scanner Overlay</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 1920px; height: 1080px;
+    background: transparent; overflow: hidden;
+    font-family: 'Courier New', monospace; position: relative;
+  }
+  @keyframes scanline   { 0% { top:-4px; } 100% { top:100%; } }
+  @keyframes pulse-ring { 0% { transform:scale(1); opacity:1; } 100% { transform:scale(2.2); opacity:0; } }
+  @keyframes fade-in    { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
+  @keyframes blink      { 0%,100% { opacity:1; } 50% { opacity:0; } }
+
+  .chip-overlay { position:absolute; pointer-events:none; animation:fade-in 0.25s ease; }
+  .chip-box     { position:absolute; border:1.5px solid #00ff88; border-radius:4px; box-shadow:0 0 8px rgba(0,255,136,0.4); }
+  .pulse        { position:absolute; border:1.5px solid #00ff88; border-radius:4px; animation:pulse-ring 1.4s ease-out infinite; opacity:0; }
+
+  .chip-card {
+    position:absolute; background:rgba(5,15,12,0.92); border:1px solid rgba(0,255,136,0.5);
+    border-radius:8px; padding:14px 18px; min-width:280px; max-width:400px;
+    box-shadow:0 4px 24px rgba(0,0,0,0.6); color:#e0ffe0;
+  }
+  .chip-card .label-id  { font-size:12px; letter-spacing:2px; color:#00ff88; text-transform:uppercase; margin-bottom:5px; }
+  .chip-card .chip-name { font-size:20px; font-weight:bold; color:#00ff88; margin-bottom:3px; }
+  .chip-card .chip-type { font-size:13px; color:#88bbaa; margin-bottom:10px; text-transform:uppercase; letter-spacing:1px; }
+  .chip-card .chip-desc { font-size:14px; color:#c0ddd0; line-height:1.6; font-family:sans-serif; }
+  .chip-card .chip-specs { margin-top:10px; display:flex; flex-wrap:wrap; gap:5px; }
+  .chip-card .spec-pill { font-size:12px; background:rgba(0,255,136,0.12); border:1px solid rgba(0,255,136,0.25); border-radius:3px; padding:3px 8px; color:#00dd77; }
+
+  .leader-svg { position:absolute; pointer-events:none; overflow:visible; }
+
+  #hud {
+    position:absolute; top:20px; left:20px;
+    display:flex; align-items:center; gap:10px;
+    background:rgba(0,10,8,0.75); border:1px solid rgba(0,255,136,0.3);
+    border-radius:6px; padding:10px 18px;
+    color:#00ff88; font-size:16px; letter-spacing:1.5px; text-transform:uppercase;
+  }
+  #hud .dot            { width:8px; height:8px; border-radius:50%; background:#00ff88; }
+  #hud .dot.scanning   { animation:blink 1s ease infinite; }
+  #hud .dot.idle       { background:#557766; }
+  #hud .dot.error      { background:#ff4444; animation:blink 0.5s ease infinite; }
+  #hud .dot.connecting { background:#ffaa00; animation:blink 0.6s ease infinite; }
+  #hud #hud-text       { color:#88bbaa; }
+
+  #config-panel {
+    position:absolute; bottom:20px; right:20px;
+    background:rgba(5,15,12,0.9); border:1px solid rgba(0,255,136,0.3);
+    border-radius:8px; padding:14px 16px; color:#c0ddd0; font-size:11px; min-width:300px; display:none;
+  }
+  #config-panel h3     { color:#00ff88; margin-bottom:10px; font-size:12px; letter-spacing:1px; text-transform:uppercase; }
+  #config-panel label  { display:flex; flex-direction:column; gap:4px; margin-bottom:8px; }
+  #config-panel input  { background:rgba(0,255,136,0.06); border:1px solid rgba(0,255,136,0.2); border-radius:4px; color:#e0ffe0; padding:5px 8px; font-family:'Courier New',monospace; font-size:11px; outline:none; width:100%; }
+  #config-panel button { background:rgba(0,255,136,0.15); border:1px solid rgba(0,255,136,0.4); border-radius:4px; color:#00ff88; padding:6px 12px; font-family:'Courier New',monospace; font-size:11px; cursor:pointer; letter-spacing:1px; text-transform:uppercase; width:100%; margin-top:4px; }
+  #config-panel button:hover { background:rgba(0,255,136,0.25); }
+  #config-panel .hint  { font-size:10px; color:#557766; line-height:1.7; margin-top:10px; border-top:1px solid rgba(0,255,136,0.1); padding-top:8px; }
+  #config-panel .hint code { color:#00dd77; background:rgba(0,255,136,0.08); padding:1px 4px; border-radius:2px; }
+
+  #debug-log {
+    position:absolute; bottom:20px; left:20px;
+    background:rgba(0,5,3,0.85); border:1px solid rgba(0,255,136,0.2);
+    border-radius:6px; padding:8px 12px; color:#557766;
+    font-size:10px; max-width:500px; line-height:1.6; display:none;
+  }
+
+  #scanline-sweep {
+    position:absolute; left:0; right:0; height:2px;
+    background:linear-gradient(to right,transparent,rgba(0,255,136,0.4),transparent);
+    pointer-events:none; display:none;
+  }
+
+  /* Detection zone box */
+  #zone-box {
+    position:absolute;
+    border: 2px dashed rgba(0,255,136,0.5);
+    border-radius: 4px;
+    box-shadow: 0 0 0 9999px rgba(0,0,0,0.35);
+    pointer-events:none;
+  }
+  #zone-label {
+    position:absolute;
+    font-size:11px;
+    letter-spacing:1.5px;
+    text-transform:uppercase;
+    color:rgba(0,255,136,0.5);
+    pointer-events:none;
+  }
+</style>
+</head>
+<body>
+<div id="scanline-sweep"></div>
+<div id="zone-box"></div>
+<div id="zone-label">Detection zone</div>
+
+<div id="hud">
+  <div class="dot connecting" id="hud-dot"></div>
+  <span>PCB Scanner</span>
+  <span id="hud-text">Connecting…</span>
+</div>
+
+<div id="overlay-root"></div>
+<div id="debug-log"></div>
+
+<div id="config-panel">
+  <h3>⚙ Scanner Config</h3>
+  <label><span>Frame server port</span>
+    <input type="number" id="cfg-port" value="8765" min="1024" max="65535">
+  </label>
+  <button id="cfg-save">Connect</button>
+  <button id="cfg-clear" style="margin-top:6px;background:rgba(255,68,68,0.1);border-color:rgba(255,68,68,0.3);color:#ff8888;">Clear overlays</button>
+  <div class="hint">
+    The API key is now set in the <b>Python server</b>, not here.<br><br>
+    Run: <code>python pcb_frame_server.py --camera 0 --apikey sk-ant-YOUR-KEY</code><br><br>
+    Keys: <code>C</code> config &nbsp;·&nbsp; <code>S</code> force scan &nbsp;·&nbsp; <code>D</code> debug log &nbsp;·&nbsp; <code>H</code> hide HUD
+  </div>
+</div>
+
+<script>
+const STATE = {
+  port:      parseInt(localStorage.getItem('pcb_port') || '8765'),
+  ws:        null,
+  chips:     [],
+};
+
+const root      = document.getElementById('overlay-root');
+const hudDot    = document.getElementById('hud-dot');
+const hudText   = document.getElementById('hud-text');
+const sweep     = document.getElementById('scanline-sweep');
+const cfgPanel  = document.getElementById('config-panel');
+const debugLog  = document.getElementById('debug-log');
+
+let debugVisible = false;
+const debugLines = [];
+function dbg(msg) {
+  const t = new Date().toLocaleTimeString();
+  debugLines.push(`[${t}] ${msg}`);
+  if (debugLines.length > 12) debugLines.shift();
+  debugLog.innerHTML = debugLines.join('<br>');
+}
+
+// ── WebSocket ────────────────────────────────────────────
+function connectWS() {
+  setStatus('connecting', `Connecting to :${STATE.port}…`);
+  if (STATE.ws) { try { STATE.ws.close(); } catch(_){} }
+
+  const ws = new WebSocket(`ws://localhost:${STATE.port}`);
+  STATE.ws = ws;
+
+  ws.onopen = () => {
+    setStatus('idle', 'Connected — waiting for scan…');
+    dbg('WebSocket connected to frame server');
+  };
+
+  ws.onmessage = (evt) => {
+    try {
+      const msg = JSON.parse(evt.data);
+
+      if (msg.type === 'frame') {
+        if (msg.zone) updateZoneBox(msg.zone);
+
+      } else if (msg.type === 'chips') {
+        const chips = msg.chips || [];
+        dbg(`Chips received: ${chips.length} — ${chips.map(c=>c.name).join(', ') || 'none'}`);
+        STATE.chips = chips;
+        renderChips(chips);
+        animateSweep();
+        setStatus('idle', chips.length
+          ? `${chips.length} chip${chips.length > 1 ? 's' : ''} detected`
+          : 'No chips detected');
+
+      } else if (msg.type === 'clear') {
+        root.innerHTML = '';
+        currentChips = [];
+        setStatus('idle', 'Overlay cleared — press Space to scan');
+      } else if (msg.type === 'error') {
+        dbg(`Server error: ${msg.message}`);
+        setStatus('error', msg.message.slice(0, 60));
+
+      } else if (msg.type === 'scan_start') {
+        setStatus('scanning', 'Scanning…');
+        animateSweep();
+        dbg('Scan started by server');
+      }
+    } catch(e) {
+      dbg(`WS parse error: ${e.message}`);
+    }
+  };
+
+  ws.onerror = (e) => {
+    dbg(`WS error — is pcb_frame_server.py running?`);
+    setStatus('error', `Can't reach frame server on :${STATE.port}`);
+  };
+
+  ws.onclose = () => {
+    setStatus('error', 'Disconnected — retrying in 5s');
+    dbg('WS closed, reconnecting in 5s…');
+    setTimeout(connectWS, 5000);
+  };
+}
+
+// ── Render overlays ──────────────────────────────────────
+const CARD_W = 260, CARD_H = 130;
+
+function renderChips(chips) {
+  root.innerHTML = '';
+  const W = window.innerWidth  || 1920;
+  const H = window.innerHeight || 1080;
+
+  chips.forEach((chip, i) => {
+    const bx = chip.bbox_pct.x * W;
+    const by = chip.bbox_pct.y * H;
+    const bw = chip.bbox_pct.w * W;
+    const bh = chip.bbox_pct.h * H;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'chip-overlay';
+    wrap.style.cssText = `left:0;top:0;width:${W}px;height:${H}px;position:absolute;`;
+
+    const box = document.createElement('div');
+    box.className = 'chip-box';
+    box.style.cssText = `left:${bx}px;top:${by}px;width:${bw}px;height:${bh}px;`;
+
+    const pulse = document.createElement('div');
+    pulse.className = 'pulse';
+    pulse.style.cssText = `left:${bx}px;top:${by}px;width:${bw}px;height:${bh}px;animation-delay:${i*0.3}s;`;
+
+    let cx = bx + bw + 20;
+    if (cx + CARD_W > W - 10) cx = bx - CARD_W - 20;
+    let cy = by;
+    if (cy + CARD_H > H - 10) cy = H - CARD_H - 10;
+
+    const svgEl = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    svgEl.className = 'leader-svg';
+    svgEl.style.cssText = `left:0;top:0;width:${W}px;height:${H}px;`;
+    svgEl.setAttribute('viewBox',`0 0 ${W} ${H}`);
+    const ln = document.createElementNS('http://www.w3.org/2000/svg','line');
+    ln.setAttribute('x1', bx+bw/2); ln.setAttribute('y1', by+bh/2);
+    ln.setAttribute('x2', cx+(cx>bx?0:CARD_W)); ln.setAttribute('y2', cy+20);
+    ln.setAttribute('stroke','rgba(0,255,136,0.4)');
+    ln.setAttribute('stroke-width','0.8');
+    ln.setAttribute('stroke-dasharray','4 3');
+    svgEl.appendChild(ln);
+
+    const card = document.createElement('div');
+    card.className = 'chip-card';
+    card.style.cssText = `left:${cx}px;top:${cy}px;`;
+    card.innerHTML = `
+      <div class="label-id">${chip.manufacturer||''} · ${chip.id||''}</div>
+      <div class="chip-name">${chip.name||'Unknown'}</div>
+      <div class="chip-type">${chip.type||''}</div>
+      <div class="chip-desc">${chip.description||''}</div>
+      ${chip.specs?.length?`<div class="chip-specs">${chip.specs.map(s=>`<span class="spec-pill">${s}</span>`).join('')}</div>`:''}
+    `;
+
+    wrap.appendChild(svgEl); wrap.appendChild(box);
+    wrap.appendChild(pulse); wrap.appendChild(card);
+    root.appendChild(wrap);
+  });
+}
+
+// ── Helpers ──────────────────────────────────────────────
+function animateSweep() {
+  sweep.style.display = 'block'; sweep.style.animation = 'none';
+  sweep.offsetHeight;
+  sweep.style.animation = 'scanline 0.8s linear 1';
+  sweep.addEventListener('animationend', ()=>{ sweep.style.display='none'; }, {once:true});
+}
+
+function setStatus(state, msg) {
+  hudDot.className = 'dot ' + state;
+  hudText.textContent = msg;
+}
+
+function updateZoneBox(zone) {
+  const W = window.innerWidth  || 1920;
+  const H = window.innerHeight || 1080;
+  const zx = zone.x * W;
+  const zy = zone.y * H;
+  const zw = zone.w * W;
+  const zh = zone.h * H;
+  const box = document.getElementById('zone-box');
+  box.style.left   = zx + 'px';
+  box.style.top    = zy + 'px';
+  box.style.width  = zw + 'px';
+  box.style.height = zh + 'px';
+  const lbl = document.getElementById('zone-label');
+  lbl.style.left = zx + 'px';
+  lbl.style.top  = (zy - 18) + 'px';
+}
+
+// ── Config ────────────────────────────────────────────────
+document.getElementById('cfg-save').addEventListener('click', () => {
+  STATE.port = parseInt(document.getElementById('cfg-port').value) || 8765;
+  localStorage.setItem('pcb_port', STATE.port);
+  cfgPanel.style.display = 'none';
+  connectWS();
+});
+
+document.getElementById('cfg-clear').addEventListener('click', () => {
+  root.innerHTML = ''; STATE.chips = [];
+  setStatus('idle','Overlays cleared');
+  dbg('Overlays cleared');
+});
+
+// ── Keys ──────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key==='c'||e.key==='C') {
+    cfgPanel.style.display = cfgPanel.style.display==='none' ? 'block' : 'none';
+    if (cfgPanel.style.display==='block')
+      document.getElementById('cfg-port').value = STATE.port;
+  }
+  if (e.key==='d'||e.key==='D') {
+    debugVisible = !debugVisible;
+    debugLog.style.display = debugVisible ? 'block' : 'none';
+    dbg('Debug log opened');
+  }
+  if (e.key==='h'||e.key==='H') {
+    const hud = document.getElementById('hud');
+    hud.style.display = hud.style.display==='none' ? 'flex' : 'none';
+  }
+});
+
+// ── Boot ──────────────────────────────────────────────────
+(() => {
+  document.getElementById('cfg-port').value = STATE.port;
+  dbg('PCB Scanner overlay started');
+  connectWS();
+})();
+</script>
+</body>
+</html>
