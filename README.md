@@ -36,7 +36,6 @@ pcb_frame_server_hybrid.py   # Hybrid version  — Ollama OCR + local DB + web l
 pcb_viewer.html              # Browser viewer (used by all versions)
 pcb-chip-scanner.html        # OBS Browser Source overlay
 find_cameras.py              # Utility to find your camera index
-Start PCB Scanner.bat        # Windows batch file to launch the paid version
 README.md
 ```
 
@@ -70,7 +69,7 @@ The Python server captures frames from your camera, crops a centred detection zo
 | Reading chip markings | ⭐⭐⭐ | ⭐ | ⭐⭐ |
 | Spec accuracy | ⭐⭐⭐ | ⭐ | ⭐⭐⭐ |
 | Speed | 2–5s | 15–30s | 15–30s |
-| Cost per scan | ~$0.008 | Free | Free |
+| Cost per scan | ~$0.70 est | Free | Free |
 | Internet required | Yes | No | For web lookup |
 | API key required | Yes | No | No |
 | Best for | Highest accuracy | Fully offline | Free + accurate specs |
@@ -221,12 +220,6 @@ The built-in database covers over 100 chips including popular ESP32 variants, ST
 
 ---
 
-## Windows Batch File
-
-Edit `Start PCB Scanner.bat` with your camera index and API key, then double-click it to launch. It automatically clears ports 8765 and 8766 before starting so you never get a port-in-use error from a previous session.
-
----
-
 ## Paid Version — Cost Tracking
 
 Every scan prints a usage summary to the terminal:
@@ -270,7 +263,7 @@ To prevent Ollama auto-starting with Windows: Task Manager → **Startup apps** 
 ## Troubleshooting
 
 **Port already in use**
-A previous server instance is still running. Use the batch file (it clears ports automatically) or run:
+A previous server instance is still running. Use a batch file (it clears ports automatically) or run:
 ```bash
 netstat -aon | findstr :8765
 taskkill /PID <PID> /F
